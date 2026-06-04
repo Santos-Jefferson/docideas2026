@@ -28,6 +28,7 @@ export default function Dashboard() {
   const [total, setTotal] = useState(0);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [apiUp, setApiUp] = useState<boolean | null>(null); // null = checking
   const debounce = useRef<ReturnType<typeof setTimeout>>();
 
   const queryString = useMemo(() => {
@@ -63,6 +64,22 @@ export default function Dashboard() {
     return () => clearTimeout(debounce.current);
   }, [load]);
 
+  // Check DocInsights connectivity on mount and every 30s.
+  const checkHealth = useCallback(async () => {
+    try {
+      const resp = await fetch("/api/health", { cache: "no-store" });
+      const data = await resp.json();
+      setApiUp(Boolean(data.docinsights));
+    } catch {
+      setApiUp(false);
+    }
+  }, []);
+  useEffect(() => {
+    checkHealth();
+    const id = setInterval(checkHealth, 30000);
+    return () => clearInterval(id);
+  }, [checkHealth]);
+
   // Poll while anything is still being processed.
   const hasActive = docs.some((d) => d.status === "pending" || d.status === "processing");
   useEffect(() => {
@@ -75,6 +92,8 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      <ApiStatus up={apiUp} onRecheck={checkHealth} />
+
       <UploadZone onUploaded={load} />
 
       {/* Stats */}
@@ -179,6 +198,37 @@ export default function Dashboard() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function ApiStatus({ up, onRecheck }: { up: boolean | null; onRecheck: () => void }) {
+  if (up === null) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+        <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400" />
+        Checking DocInsights API…
+      </div>
+    );
+  }
+  if (up) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-700">
+        <span className="h-2 w-2 rounded-full bg-green-500" />
+        DocInsights API reachable — documents will process automatically.
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+      <span className="h-2 w-2 rounded-full bg-amber-500" />
+      <span>
+        DocInsights API unreachable. Uploads are saved but won&apos;t be analyzed until you&apos;re on
+        the Synchronoss network (SIP). Use <strong>Reprocess</strong> on a document once connected.
+      </span>
+      <button onClick={onRecheck} className="ml-auto rounded border border-amber-400 px-2 py-0.5 hover:bg-amber-100">
+        Re-check
+      </button>
     </div>
   );
 }
